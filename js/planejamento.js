@@ -3,7 +3,8 @@ import {
   db, collection, onSnapshot
 } from "./firebase-config.js";
 
-document.getElementById('logout-btn').addEventListener('click', () => {
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) logoutBtn.addEventListener('click', () => {
   signOut(auth).catch(err => console.error('Erro ao sair:', err));
 });
 
@@ -13,6 +14,49 @@ const EMPTY_PLAN_COUNTER = 'Plano sem nome';
 
 const money = (v) => v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
 const pct = (v) => (v*100).toFixed(1).replace('.',',') + '%';
+
+// =========================================================
+//  SIMULADOR: gera N meses de cálculo a partir de 1 simulação salva
+//  (usado no painel de visualização 👁 e nos stats de cabeçalho)
+// =========================================================
+function simulatePlano(row, startingBalance){
+  const n = Math.max(1, parseInt(row?.qtdMeses) || 1);
+  const rec = Number(row?.receita) || 0;
+  const gas = Number(row?.gastos) || 0;
+  const inv = Number(row?.investimentos) || 0;
+  const months = [];
+  let running = Number(startingBalance) || 0;
+  for (let i = 0; i < n; i++){
+    const label = (row?.startMonthLabel)
+      ? nextMonthLabelFromLastWithOffset(row.startMonthLabel, i)
+      : nextMonthLabelFromDate(new Date(), i);
+    const saldoInicial = running;
+    const saldoFinal = saldoInicial + rec - gas - inv;
+    months.push({
+      id: `${row?.id || 'sim'}_m${i}`,
+      monthLabel: label,
+      receita: rec,
+      gastos: gas,
+      investimentos: inv,
+      saldoInicial,
+      saldoFinal
+    });
+    running = saldoFinal;
+  }
+  return months;
+}
+
+function nextMonthLabelFromLastWithOffset(lastLabel, offset){
+  const parts = lastLabel.split(' ');
+  const monthName = parts.slice(0, -1).join(' ');
+  const year = parseInt(parts[parts.length-1]) || new Date().getFullYear();
+  let idx = MONTHS.indexOf(monthName);
+  if (idx === -1) idx = new Date().getMonth();
+  idx += offset;
+  const y = year + Math.floor(idx / 12);
+  const m = ((idx % 12) + 12) % 12;
+  return `${MONTHS[m]} ${y}`;
+}
 
 let currentUserUid = null;
 let appCurrentBalance = 0;
@@ -27,7 +71,8 @@ let store = {
 let plan = emptyPlan();
 let editingId = null;
 let editingCache = {};
-let viewingId = null;
+let viewingId = null;       // id da simulação (row da tabela) selecionada para 👁
+let viewingMonthIdx = 0;    // índice do mês (0..N-1) DENTRO da simulação selecionada
 
 onAuthStateChanged(auth, (user) => {
   if (!user) {
@@ -110,31 +155,59 @@ function extractPlanLegacy(obj){
     name: typeof obj?.name === 'string' ? obj.name : (rows.length>0 ? 'Plano importado' : 'Plano inicial'),
     useCustomBalance: !!obj?.useCustomBalance,
     customBalance: Number(obj?.customBalance) || 0,
-    rows: rows.map(r => ({
-      id: r?.id || genId(),
-      monthLabel: r?.monthLabel || nextMonthLabelFromDate(new Date(), 0),
-      receita: Number(r?.receita) || 0,
-      gastos: Number(r?.gastos) || 0,
-      investimentos: Number(r?.investimentos) || 0
-    })),
+    rows: rows.map(r => normalizeRowLegacy(r)),
     createdAt: Date.now()
   });
 }
 
+// Migra 1 row do formato antigo (mês único) para o formato novo (simulação com qtdMeses)
+function normalizeRowLegacy(r){
+  if (!r) return null;
+  if (typeof r.qtdMeses !== 'undefined' && r.qtdMeses !== null){
+    // Já é formato novo
+    return normalizeRow(r);
+  }
+  // Formato antigo → vira simulação de 1 mês
+  return normalizeRow({
+    id: r?.id || genId(),
+    startMonthLabel: r?.monthLabel || nextMonthLabelFromDate(new Date(), 0),
+    qtdMeses: 1,
+    receita: Number(r?.receita) || 0,
+    gastos: Number(r?.gastos) || 0,
+    investimentos: Number(r?.investimentos) || 0,
+    createdAt: Number(r?.createdAt) || Date.now()
+  });
+}
+
+function normalizeRow(r){
+  if (!r) return null;
+  return {
+    id: r.id || genId(),
+    startMonthLabel: typeof r.startMonthLabel === 'string' && r.startMonthLabel
+      ? r.startMonthLabel
+      : nextMonthLabelFromDate(new Date(), 0),
+    qtdMeses: Math.max(1, parseInt(r.qtdMeses) || 1),
+    receita: Number(r.receita) || 0,
+    gastos: Number(r.gastos) || 0,
+    investimentos: Number(r.investimentos) || 0,
+    createdAt: Number(r.createdAt) || Date.now()
+  };
+}
+
 function normalizePlan(p){
   if (!p) return emptyPlan();
+  const rawRows = Array.isArray(p.rows) ? p.rows : [];
+  const normalizedRows = [];
+  rawRows.forEach(r => {
+    const nr = normalizeRowLegacy(r);
+    if (nr) normalizedRows.push(nr);
+  });
   return {
     id: p.id || genId(),
     name: typeof p.name === 'string' ? p.name : '',
     useCustomBalance: !!p.useCustomBalance,
     customBalance: Number(p.customBalance) || 0,
-    rows: Array.isArray(p.rows) ? p.rows.map(r => ({
-      id: r?.id || genId(),
-      monthLabel: r?.monthLabel || nextMonthLabelFromDate(new Date(), 0),
-      receita: Number(r?.receita) || 0,
-      gastos: Number(r?.gastos) || 0,
-      investimentos: Number(r?.investimentos) || 0
-    })) : [],
+    rows: normalizedRows,
     createdAt: Number(p.createdAt) || Date.now()
   };
 }
@@ -166,7 +239,7 @@ function renderPlanSelector(){
     const opt = document.createElement('option');
     opt.value = p.id;
     const display = p.name ? p.name : EMPTY_PLAN_COUNTER;
-    opt.textContent = `${display}${p.rows.length ? ` · ${p.rows.length} m` : ''}`;
+    opt.textContent = `${display}${p.rows.length ? ` · ${p.rows.length} sim` : ''}`;
     if (p.id === store.currentId) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -260,7 +333,8 @@ function bindStaticEvents(){
   });
 
   // --- Botão "Usar saldo atual" (não toca nas linhas)
-  document.getElementById('btn-use-saldo').addEventListener('click', () => {
+  const btnUseSaldo = document.getElementById('btn-use-saldo');
+  if (btnUseSaldo) btnUseSaldo.addEventListener('click', () => {
     plan.useCustomBalance = false;
     plan.customBalance = 0;
     saveStore();
@@ -268,11 +342,11 @@ function bindStaticEvents(){
     renderAll();
   });
 
-  // --- Botão Limpar meses (só linhas do plano atual)
+  // --- Botão Limpar simulações (só linhas do plano atual)
   const btnClear = document.getElementById('btn-clear-rows');
   if (btnClear) btnClear.addEventListener('click', () => {
     if (plan.rows.length === 0) return;
-    if (!confirm(`Limpar TODOS os ${plan.rows.length} meses do plano atual?\nNome e saldo inicial permanecem.`)) return;
+    if (!confirm(`Limpar TODAS as ${plan.rows.length} simulações do plano atual?\nNome e saldo inicial permanecem.`)) return;
     plan.rows = [];
     saveStore();
     viewingId = null;
@@ -440,7 +514,7 @@ function saveReverseWithChoice(){
     }
   }
 
-  // Popula as linhas (com a regra "só 1 mês se vazio, não gera vários")
+  // Popula as linhas com a quantidade informada na calculadora
   populateReverseIntoCurrent(m, choice==='new');
   if (choice === 'new'){
     renderPlanSelector();
@@ -451,22 +525,24 @@ function saveReverseWithChoice(){
 }
 
 function chooseSaveAction(){
+  const mesesEl = document.getElementById('rev-meses');
+  const qtd = parseInt(mesesEl?.value) || 0;
+  const qtdStr = qtd > 0 ? `${qtd} mês(es)` : 'os meses';
   const display = (plan.name || EMPTY_PLAN_COUNTER);
+  const nSim = plan.rows.length;
   const msg =
-`Escolha uma ação para o resultado da calculadora:
+`Escolha uma ação para o resultado da calculadora (${qtdStr}):
 
 [1] Salvar no plano ATUAL  →  "${display}"
-     - Se o plano já tiver meses, NÃO recria a lista (apenas simulação mantida).
-     - Se estiver vazio, cria apenas o 1º mês.
+     - Cria UMA SIMULAÇÃO (1 linha) com ${qtdStr} calculados dinamicamente.
+     - ${nSim > 0 ? `Hoje já existem ${nSim} simulação(ões) salva(s) neste plano — mais uma será adicionada.` : 'Ainda não há simulações, a primeira será criada.'}
 
 [2] CRIAR como NOVO plano
      - Gera um novo planejamento independente e o abre.
-     - Cria apenas o 1º mês na lista.
+     - Cria 1 simulação com ${qtdStr}.
 
 Cancelar = não fazer nada.`;
 
-  // Usa 3 prompts simples? Não — usaremos confirm em duas etapas.
-  // Primeiro pergunta se quer novo ou atual.
   if (confirm(msg.replace(/^\s+/gm,''))){
     if (confirm(`OK = Criar NOVO plano  |  Cancelar = Salvar no plano ATUAL "${display}"`)){
       return 'new';
@@ -485,19 +561,24 @@ function populateReverseIntoCurrent(qtd, isNewPlan){
   const gastoPorMes = gasInformado > 0 ? gasInformado : Math.max(0, (starting + (rec * Math.max(1,qtd))) / Math.max(1,qtd));
   const now = new Date();
 
-  if (!isNewPlan && plan.rows.length > 0){
-    alert('O plano ATUAL já contém meses — a lista NÃO será alterada.\nA calculadora permanece apenas como simulação.\n\nPara gerar um plano novo, use a opção "Criar como NOVO plano".');
-    return;
-  }
-
-  // Cria SÓ 1 mês (nunca vários)
-  plan.rows = [{
+  // Cria SEMPRE 1 simulação resumida, com N meses embutidos no parâmetro qtdMeses
+  const startLabel = nextMonthLabelFromDate(now, 0);
+  const novaSimulacao = {
     id: genId(),
-    monthLabel: nextMonthLabelFromDate(now, 0),
+    startMonthLabel: startLabel,
+    qtdMeses: Math.max(1, parseInt(qtd) || 1),
     receita: rec,
     gastos: gastoPorMes,
-    investimentos: 0
-  }];
+    investimentos: 0,
+    createdAt: Date.now()
+  };
+
+  if (isNewPlan || plan.rows.length === 0){
+    plan.rows = [novaSimulacao];
+  } else {
+    // Adiciona como NOVA simulação ao lado das existentes
+    plan.rows.push(novaSimulacao);
+  }
   viewingId = null;
   editingId = null;
 }
@@ -506,20 +587,18 @@ function populateReverseIntoCurrent(qtd, isNewPlan){
 //   NAVEGAÇÃO DE MÊS NO PAINEL DE VISÃO
 // ===============================
 function navigateViewMonth(dir){
-  const rows = plan.rows;
-  if (rows.length === 0) return;
-  let idx = rows.findIndex(r => r.id === viewingId);
-  if (idx === -1) idx = 0;
-  if (dir === 'first') idx = 0;
-  else if (dir === 'last') idx = rows.length - 1;
-  else idx = (idx + dir + rows.length) % rows.length;
-  viewingId = rows[idx].id;
+  const sim = getActiveSimRow();
+  if (!sim) return;
+  const n = Math.max(1, parseInt(sim.qtdMeses) || 1);
+  if (dir === 'first') viewingMonthIdx = 0;
+  else if (dir === 'last') viewingMonthIdx = n - 1;
+  else viewingMonthIdx = ((viewingMonthIdx + dir) % n + n) % n;
   renderAll();
   requestAnimationFrame(() => {
     const panel = document.getElementById('view-panel');
     if (panel) panel.scrollIntoView({ behavior:'smooth', block:'start' });
     setTimeout(() => {
-      const target = document.querySelector(`[data-timeline-id="${viewingId}"]`);
+      const target = document.querySelector(`[data-timeline-id="${sim.id}_m${viewingMonthIdx}"]`);
       if (target){
         target.animate(
           [
@@ -537,24 +616,35 @@ function navigateViewMonth(dir){
 // ===============================
 //   CALC / STATS
 // ===============================
-function calculate(){
-  const withCalc = plan.rows.map(r => ({ ...r }));
-  let running = getStartingBalance();
-  for (let i=0;i<withCalc.length;i++){
-    const r = withCalc[i];
-    r.saldoInicial = running;
-    r.saldoFinal = r.saldoInicial + (Number(r.receita)||0) - (Number(r.gastos)||0) - (Number(r.investimentos)||0);
-    running = r.saldoFinal;
+// Retorna a simulação (row) atualmente usada como referência para cálculos/stats
+// Prioridade: 1) viewingId se definido  2) última row salva  3) null
+function getActiveSimRow(){
+  if (!plan.rows || plan.rows.length === 0) return null;
+  if (viewingId){
+    const r = plan.rows.find(x => x.id === viewingId);
+    if (r) return r;
   }
-  return withCalc;
+  if (editingId){
+    const r = plan.rows.find(x => x.id === editingId);
+    if (r) return r;
+  }
+  return plan.rows[plan.rows.length - 1];
+}
+
+function calculate(){
+  const active = getActiveSimRow();
+  if (!active) return [];
+  // Expande a simulação em N meses para manter compatibilidade com renderViewPanel/timeline
+  return simulatePlano(active, getStartingBalance());
 }
 
 function calculateRunwayMonths(calcRows){
   const startBal = getStartingBalance();
   if (startBal <= 0) return 0;
-  const avgGastos = calcRows.reduce((s,r)=> s + (Number(r.gastos)||0), 0) / Math.max(1, calcRows.length);
-  const avgReceita = calcRows.reduce((s,r)=> s + (Number(r.receita)||0), 0) / Math.max(1, calcRows.length);
-  const avgInvest = calcRows.reduce((s,r)=> s + (Number(r.investimentos)||0), 0) / Math.max(1, calcRows.length);
+  const n = Math.max(1, calcRows.length);
+  const avgGastos = calcRows.reduce((s,r)=> s + (Number(r.gastos)||0), 0) / n;
+  const avgReceita = calcRows.reduce((s,r)=> s + (Number(r.receita)||0), 0) / n;
+  const avgInvest = calcRows.reduce((s,r)=> s + (Number(r.investimentos)||0), 0) / n;
   const burn = (avgGastos + avgInvest) - avgReceita;
   if (burn <= 0) return Infinity;
   return Math.floor(startBal / burn);
@@ -643,7 +733,7 @@ function renderReverseCalc(){
     const perDay = gastoMedio / 30;
     let extra = '';
     if (plan.rows.length > 0){
-      extra = `<br>Média de gasto real dos <strong>${plan.rows.length}</strong> meses cadastrados: <strong style="color:var(--gold);">${money(mediaReal)}</strong>/mês`;
+      extra = `<br>Média de gasto mensal das <strong>${plan.rows.length}</strong> simulações salvas: <strong style="color:var(--gold);">${money(mediaReal)}</strong>/mês`;
       if (mediaReal > gastoMedio){
         extra += ` — <span style="color:var(--red);">você está gastando ${money(mediaReal - gastoMedio)} acima do limite!</span>`;
       } else if (mediaReal > 0){
@@ -661,20 +751,28 @@ function renderTable(){
   const tbody = document.getElementById('plan-body');
   const empty = document.getElementById('empty-plan');
   tbody.innerHTML = '';
-  const calc = calculate();
+  const rows = plan.rows || [];
 
-  if (calc.length === 0){
+  if (rows.length === 0){
     empty.style.display = 'block';
     return;
   }
   empty.style.display = 'none';
 
-  calc.forEach((r, i) => {
+  rows.forEach((sim, simIndex) => {
     const tr = document.createElement('tr');
-    tr.dataset.id = r.id;
-    const first = i === 0;
-    const isEditing = editingId === r.id;
-    const isViewing = viewingId === r.id;
+    tr.dataset.id = sim.id;
+    const isEditing = editingId === sim.id;
+    const isViewing = viewingId === sim.id;
+
+    // Simulação expandida para mostrar saldo inicial/final e valores agregados
+    const expanded = simulatePlano(sim, getStartingBalance());
+    const firstMonth = expanded[0];
+    const lastMonth  = expanded[expanded.length - 1];
+    const labelInicial = sim.startMonthLabel;
+    const labelFinal = expanded.length > 1
+      ? nextMonthLabelFromLastWithOffset(sim.startMonthLabel, expanded.length - 1)
+      : sim.startMonthLabel;
 
     if (isEditing){
       const state = editingCache;
@@ -682,13 +780,18 @@ function renderTable(){
       tr.innerHTML = `
         <td style="text-align:left;">
           ${plan.name ? `<span style="font-size:11px;color:var(--gold);font-weight:700;display:block;margin-bottom:4px;letter-spacing:.3px;">${escapeHtml(plan.name)}</span>` : ''}
-          <input type="text" class="editable-input" name="monthLabel" value="${escapeHtml(state.monthLabel)}" placeholder="Ex: Janeiro 2026" autocomplete="off" spellcheck="false" style="width:100%;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="editable-input" name="startMonthLabel" value="${escapeHtml(state.startMonthLabel)}" placeholder="Ex: Julho 2026" autocomplete="off" spellcheck="false" style="flex:1;min-width:140px;">
+            <span style="font-size:12px;color:var(--text-dim);">→</span>
+            <input type="number" step="1" min="1" class="editable-input mono" name="qtdMeses" value="${state.qtdMeses}" placeholder="12" autocomplete="off" inputmode="numeric" spellcheck="false" style="max-width:90px;">
+            <span style="font-size:12px;color:var(--text-dim);">mês(es)</span>
+          </div>
         </td>
-        <td><div class="mono" style="padding:7px 10px;color:var(--gold);font-weight:600;">${money(r.saldoInicial)}</div></td>
+        <td><div class="mono" style="padding:7px 10px;color:var(--gold);font-weight:600;">${money(firstMonth.saldoInicial)}</div></td>
         <td><input type="number" step="0.01" min="0" class="editable-input mono" name="receita" value="${formatInputNum(state.receita)}" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false"></td>
         <td><input type="number" step="0.01" min="0" class="editable-input mono" name="gastos" value="${formatInputNum(state.gastos)}" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false"></td>
         <td><input type="number" step="0.01" min="0" class="editable-input mono" name="investimentos" value="${formatInputNum(state.investimentos)}" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false"></td>
-        <td><div class="mono" style="padding:7px 10px;font-weight:700;color:${r.saldoFinal<0?'var(--red)':r.saldoFinal>0?'var(--green)':'var(--text-dim)'};">${(r.saldoFinal>=0?'+':'')+money(r.saldoFinal)}</div></td>
+        <td><div class="mono" style="padding:7px 10px;font-weight:700;color:${lastMonth.saldoFinal<0?'var(--red)':lastMonth.saldoFinal>0?'var(--green)':'var(--text-dim)'};">${(lastMonth.saldoFinal>=0?'+':'')+money(lastMonth.saldoFinal)}</div></td>
         <td style="text-align:left;">
           <div class="row-actions" style="justify-content:flex-start;">
             <button class="icon-btn save" title="Salvar alterações">✓</button>
@@ -698,8 +801,12 @@ function renderTable(){
       `;
       tr.querySelectorAll('input').forEach(inp => {
         inp.addEventListener('input', () => {
-          if (inp.name === 'monthLabel') editingCache.monthLabel = inp.value;
-          else {
+          if (inp.name === 'startMonthLabel'){
+            editingCache.startMonthLabel = inp.value;
+          } else if (inp.name === 'qtdMeses'){
+            const n = parseInt(inp.value);
+            editingCache.qtdMeses = isNaN(n) || n < 1 ? 1 : n;
+          } else {
             const n = parseFloat(inp.value);
             editingCache[inp.name] = isNaN(n) ? 0 : n;
           }
@@ -709,48 +816,61 @@ function renderTable(){
           if (e.key === 'Escape') tr.querySelector('.icon-btn.cancel').click();
         });
       });
-      tr.querySelector('.icon-btn.save').addEventListener('click', () => saveRowEdit(r.id));
+      tr.querySelector('.icon-btn.save').addEventListener('click', () => saveRowEdit(sim.id));
       tr.querySelector('.icon-btn.cancel').addEventListener('click', () => { editingId = null; editingCache = {}; renderAll(); });
     } else {
       if (isViewing) tr.style.boxShadow = 'inset 3px 0 0 var(--gold)';
+      const totalReceita = sim.receita * sim.qtdMeses;
+      const totalGastos  = sim.gastos  * sim.qtdMeses;
+      const totalInvest  = sim.investimentos * sim.qtdMeses;
       tr.innerHTML = `
         <td style="text-align:left;font-weight:600;">
           ${plan.name ? `<span style="font-size:11px;color:var(--gold);font-weight:700;display:block;margin-bottom:4px;letter-spacing:.3px;">${escapeHtml(plan.name)}</span>` : ''}
-          <span>${escapeHtml(r.monthLabel)}</span>
-          ${first ? '<div style="font-size:10px;color:var(--gold);margin-top:2px;">(mês atual)</div>' : ''}
+          <span>${escapeHtml(labelInicial)} → ${escapeHtml(labelFinal)}</span>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-weight:500;">
+            ${sim.qtdMeses} ${sim.qtdMeses === 1 ? 'mês' : 'meses'} · ${money(totalReceita)} receita · ${money(totalGastos)} gastos${totalInvest>0?` · ${money(totalInvest)} invest.`:''}
+          </div>
         </td>
-        <td class="mono" style="color:var(--gold);font-weight:600;">${money(r.saldoInicial)}</td>
-        <td class="mono tx-value entrada" style="font-weight:700;">+${money(r.receita)}</td>
-        <td class="mono tx-value saida" style="font-weight:700;">-${money(r.gastos)}</td>
-        <td class="mono" style="font-weight:700;color:#b087ff;">${money(r.investimentos)}</td>
-        <td class="mono" style="font-weight:700;color:${r.saldoFinal<0?'var(--red)':r.saldoFinal>0?'var(--green)':'var(--text-dim)'};">${(r.saldoFinal>=0?'+':'')+money(r.saldoFinal)}</td>
+        <td class="mono" style="color:var(--gold);font-weight:600;">${money(firstMonth.saldoInicial)}</td>
+        <td class="mono tx-value entrada" style="font-weight:700;">+${money(sim.receita)}<div style="font-size:10px;color:var(--text-dim);font-weight:500;margin-top:2px;">/mês · ${money(totalReceita)} total</div></td>
+        <td class="mono tx-value saida" style="font-weight:700;">-${money(sim.gastos)}<div style="font-size:10px;color:var(--text-dim);font-weight:500;margin-top:2px;">/mês · ${money(totalGastos)} total</div></td>
+        <td class="mono" style="font-weight:700;color:#b087ff;">${money(sim.investimentos)}<div style="font-size:10px;color:var(--text-dim);font-weight:500;margin-top:2px;">/mês · ${money(totalInvest)} total</div></td>
+        <td class="mono" style="font-weight:700;color:${lastMonth.saldoFinal<0?'var(--red)':lastMonth.saldoFinal>0?'var(--green)':'var(--text-dim)'};">${(lastMonth.saldoFinal>=0?'+':'')+money(lastMonth.saldoFinal)}<div style="font-size:10px;color:var(--text-dim);font-weight:500;margin-top:2px;">final do período</div></td>
         <td style="text-align:left;">
           <div class="row-actions" style="justify-content:flex-start;">
-            <button class="icon-btn view" title="Visão detalhada">👁</button>
-            <button class="icon-btn edit" title="Editar mês">✎</button>
-            <button class="icon-btn delete" title="Remover mês">🗑</button>
+            <button class="icon-btn view" title="Visão detalhada (${sim.qtdMeses} mêses)">👁</button>
+            <button class="icon-btn edit" title="Editar simulação">✎</button>
+            <button class="icon-btn delete" title="Remover simulação">🗑</button>
           </div>
         </td>
       `;
       tr.querySelector('.icon-btn.view').addEventListener('click', () => {
-        viewingId = viewingId === r.id ? null : r.id;
+        if (viewingId === sim.id){
+          viewingId = null;
+          viewingMonthIdx = 0;
+        } else {
+          viewingId = sim.id;
+          viewingMonthIdx = 0;
+        }
         renderAll();
       });
       tr.querySelector('.icon-btn.edit').addEventListener('click', () => {
-        editingId = r.id;
+        editingId = sim.id;
         editingCache = {
-          id: r.id,
-          monthLabel: r.monthLabel,
-          receita: r.receita,
-          gastos: r.gastos,
-          investimentos: r.investimentos
+          id: sim.id,
+          startMonthLabel: sim.startMonthLabel,
+          qtdMeses: sim.qtdMeses,
+          receita: sim.receita,
+          gastos: sim.gastos,
+          investimentos: sim.investimentos
         };
         renderAll();
-        setTimeout(() => document.querySelector(`tr[data-id="${r.id}"] input[name="receita"]`)?.focus(), 40);
+        setTimeout(() => document.querySelector(`tr[data-id="${sim.id}"] input[name="receita"]`)?.focus(), 40);
       });
       tr.querySelector('.icon-btn.delete').addEventListener('click', () => {
-        if (!confirm(`Remover mês "${r.monthLabel}" do plano atual?`)) return;
-        plan.rows = plan.rows.filter(x => x.id !== r.id);
+        if (!confirm(`Remover a simulação "${labelInicial} → ${labelFinal}" (${sim.qtdMeses} mêses) do plano atual?`)) return;
+        plan.rows = plan.rows.filter(x => x.id !== sim.id);
+        if (viewingId === sim.id){ viewingId = null; viewingMonthIdx = 0; }
         saveStore();
         renderAll();
       });
@@ -765,13 +885,15 @@ function saveRowEdit(id){
   const value = parseFloat(state.receita);
   const gasto = parseFloat(state.gastos);
   const inv   = parseFloat(state.investimentos);
-  const label = (state.monthLabel || '').trim();
-  const date  = label || 'Mês';
-  if (!date){ alert('Informe o nome do mês.'); return; }
+  const qtd   = parseInt(state.qtdMeses);
+  const startLabel = (state.startMonthLabel || '').trim();
+  if (!startLabel){ alert('Informe o mês de início (ex: Julho 2026).'); return; }
+  if (isNaN(qtd) || qtd < 1){ alert('Informe uma quantidade de meses válida (mínimo 1).'); return; }
 
   const idx = plan.rows.findIndex(r => r.id === id);
   if (idx === -1) return;
-  plan.rows[idx].monthLabel = date;
+  plan.rows[idx].startMonthLabel = startLabel;
+  plan.rows[idx].qtdMeses = qtd;
   plan.rows[idx].receita = isNaN(value) ? 0 : value;
   plan.rows[idx].gastos  = isNaN(gasto) ? 0 : gasto;
   plan.rows[idx].investimentos = isNaN(inv) ? 0 : inv;
@@ -779,6 +901,8 @@ function saveRowEdit(id){
   saveStore();
   editingId = null;
   editingCache = {};
+  // Se estiver visualizando esta simulação, reseta índice do mês para 0 (evita out of range)
+  if (viewingId === id && viewingMonthIdx >= qtd) viewingMonthIdx = 0;
   renderAll();
 }
 
@@ -789,30 +913,42 @@ function renderViewPanel(){
   const panel = document.getElementById('view-panel');
   if (!panel) return;
   if (!viewingId){ panel.style.display = 'none'; return; }
-  const calc = calculate();
-  const row = calc.find(r => r.id === viewingId);
-  if (!row){ viewingId = null; panel.style.display = 'none'; return; }
 
+  const sim = plan.rows.find(r => r.id === viewingId);
+  if (!sim){ viewingId = null; viewingMonthIdx = 0; panel.style.display = 'none'; return; }
+
+  const calc = simulatePlano(sim, getStartingBalance());
+  if (calc.length === 0){ viewingId = null; viewingMonthIdx = 0; panel.style.display = 'none'; return; }
+
+  // Garante que o índice do mês esteja dentro do range
+  if (viewingMonthIdx < 0) viewingMonthIdx = 0;
+  if (viewingMonthIdx >= calc.length) viewingMonthIdx = calc.length - 1;
+
+  const row = calc[viewingMonthIdx];
   panel.style.display = 'block';
-  document.getElementById('view-title-inner').textContent = (plan.name ? `${plan.name} · ` : '') + row.monthLabel;
+  const simLabelFinal = calc.length > 1
+    ? nextMonthLabelFromLastWithOffset(sim.startMonthLabel, calc.length - 1)
+    : sim.startMonthLabel;
+  document.getElementById('view-title-inner').textContent =
+    (plan.name ? `${plan.name} · ` : '') +
+    `${sim.startMonthLabel} → ${simLabelFinal} (${calc.length} ${calc.length === 1 ? 'mês' : 'meses'}) · ${row.monthLabel}`;
 
   // ---------- Nav estado (botões e contador) ----------
-  const idx = calc.findIndex(r => r.id === row.id);
   const countEl = document.getElementById('view-nav-count');
   const vPrev = document.getElementById('view-prev');
   const vNext = document.getElementById('view-next');
   const vFirst = document.getElementById('view-first');
   const vLast  = document.getElementById('view-last');
   const subEl  = document.getElementById('view-nav-subtitle');
-  if (countEl) countEl.textContent = `${idx + 1} / ${calc.length}`;
+  if (countEl) countEl.textContent = `${viewingMonthIdx + 1} / ${calc.length}`;
   const many = calc.length > 1;
   if (vPrev) { vPrev.disabled = !many; vPrev.style.opacity = many ? '1' : '.35'; vPrev.style.cursor = many ? 'pointer' : 'not-allowed'; }
   if (vNext) { vNext.disabled = !many; vNext.style.opacity = many ? '1' : '.35'; vNext.style.cursor = many ? 'pointer' : 'not-allowed'; }
   if (vFirst){ vFirst.disabled = !many; vFirst.style.opacity = many ? '1' : '.35'; vFirst.style.cursor = many ? 'pointer' : 'not-allowed'; }
   if (vLast) { vLast.disabled  = !many; vLast.style.opacity = many ? '1' : '.35'; vLast.style.cursor  = many ? 'pointer' : 'not-allowed'; }
   if (subEl)  subEl.textContent = many
-    ? `◀ / ▶ navega · teclas ← → Home End também funcionam`
-    : `Apenas 1 mês no planejamento. Adicione mais para navegar entre eles.`;
+    ? `◀ / ▶ navega entre os ${calc.length} meses · teclas ← → Home End também funcionam`
+    : `Apenas 1 mês nesta simulação. Edite a linha (✎) para aumentar o prazo.`;
 
   document.getElementById('view-inicial').textContent = money(row.saldoInicial);
   document.getElementById('view-receita').textContent = money(row.receita);
@@ -824,7 +960,7 @@ function renderViewPanel(){
   const gastoSobreReceita = row.receita > 0 ? (row.gastos / row.receita) : 0;
   const investSobreReceita = row.receita > 0 ? (row.investimentos / row.receita) : 0;
   const saldoDelta = row.saldoFinal - row.saldoInicial;
-  const idx = plan.rows.findIndex(r => r.id === row.id);
+  const planIdx = viewingMonthIdx;
   const projecaoFinal = calc[calc.length-1].saldoFinal;
 
   const indicadores = document.getElementById('view-indicators');
@@ -833,7 +969,7 @@ function renderViewPanel(){
     <div>• <strong>Gasto / Receita:</strong> <span class="mono">${pct(gastoSobreReceita)}</span> ${gastoSobreReceita > 0.7 ? '<span style="color:var(--red);">(alto)</span>' : gastoSobreReceita > 0.5 ? '<span style="color:var(--gold);">(moderado)</span>' : '<span style="color:var(--green);">(saudável)</span>'}</div>
     <div>• <strong>Investimento / Receita:</strong> <span class="mono">${pct(investSobreReceita)}</span> ${investSobreReceita > 0.2 ? '<span style="color:var(--green);">(acima de 20% — excelente!)</span>' : investSobreReceita > 0 ? '<span style="color:var(--gold);">(invista mais)</span>' : ''}</div>
     <div>• <strong>Variação do mês:</strong> <span class="mono" style="color:${saldoDelta<0?'var(--red)':saldoDelta>0?'var(--green)':'var(--text-dim)'};font-weight:700;">${saldoDelta>=0?'+':''}${money(saldoDelta)}</span></div>
-    <div>• <strong>Impacto no saldo final:</strong> mês #${idx+1} de ${calc.length} — projeção final: <span class="mono" style="color:${projecaoFinal<0?'var(--red)':'var(--gold)'};">${money(projecaoFinal)}</span></div>
+    <div>• <strong>Impacto no saldo final:</strong> mês #${planIdx+1} de ${calc.length} — projeção final: <span class="mono" style="color:${projecaoFinal<0?'var(--red)':'var(--gold)'};">${money(projecaoFinal)}</span></div>
   `;
 
   // Timeline
@@ -845,12 +981,10 @@ function renderViewPanel(){
       wrap.style.display = 'none';
     } else {
       wrap.style.display = 'block';
-      titleEl.textContent = `Resumo dos ${calc.length} meses do planejamento · clique para ver detalhes abaixo`;
+      titleEl.textContent = `Resumo dos ${calc.length} meses da simulação · clique para ver detalhes abaixo`;
       list.innerHTML = '';
-      const restantes = calc.filter(r => r.id !== viewingId);
-      const primeiro = [row, ...restantes];
-      primeiro.forEach(r => {
-        const isSel = r.id === viewingId;
+      calc.forEach((r, i) => {
+        const isSel = i === viewingMonthIdx;
         const delta = r.saldoFinal - r.saldoInicial;
         const card = document.createElement('div');
         card.dataset.timelineId = r.id;
@@ -866,15 +1000,13 @@ function renderViewPanel(){
         card.onmouseenter = () => { card.style.borderColor = 'var(--gold)'; card.style.transform = 'translateY(-1px)'; };
         card.onmouseleave = () => { card.style.borderColor = isSel ? 'var(--gold)' : 'var(--border)'; card.style.transform = 'translateY(0)'; };
         card.addEventListener('click', () => {
-          viewingId = r.id;
+          viewingMonthIdx = i;
           renderAll();
-          // Scroll foca na timeline, com um offset para o usuário ver os cards + relatório abaixo
           requestAnimationFrame(() => {
-            const panel = document.getElementById('view-panel');
-            if (panel){
-              panel.scrollIntoView({ behavior:'smooth', block:'start' });
+            const panelLocal = document.getElementById('view-panel');
+            if (panelLocal){
+              panelLocal.scrollIntoView({ behavior:'smooth', block:'start' });
             }
-            // Flash visual no card selecionado
             setTimeout(() => {
               const target = document.querySelector(`[data-timeline-id="${r.id}"]`);
               if (target){
@@ -893,7 +1025,7 @@ function renderViewPanel(){
         card.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <span style="font-weight:700;font-size:13px;">${escapeHtml(r.monthLabel)}</span>
-            ${isSel ? '<span style="font-size:11px;background:var(--gold);color:#1a1815;padding:2px 8px;border-radius:999px;">atual</span>' : ''}
+            ${isSel ? '<span style="font-size:11px;background:var(--gold);color:#1a1815;padding:2px 8px;border-radius:999px;">atual</span>' : `<span style="font-size:10px;color:var(--text-dim);">mês ${i+1}</span>`}
           </div>
           <div class="mono" style="font-size:11px;color:var(--text-dim);">Inicial ${money(r.saldoInicial)}</div>
           <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;">
@@ -932,7 +1064,7 @@ function renderViewPanel(){
 
       const header = [];
       header.push(`<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border);">`);
-      header.push(`<div style="font-family:'Fraunces',serif;font-size:14.5px;color:var(--gold);margin-bottom:6px;">📘 ${plan.name ? escapeHtml(plan.name) : 'Planejamento sem nome'} · Resumo de todos os ${calc.length} meses</div>`);
+      header.push(`<div style="font-family:'Fraunces',serif;font-size:14.5px;color:var(--gold);margin-bottom:6px;">📘 ${plan.name ? escapeHtml(plan.name) : 'Planejamento sem nome'} · Simulação ${sim.startMonthLabel} → ${simLabelFinal} (${calc.length} ${calc.length === 1 ? 'mês' : 'meses'})</div>`);
       header.push(`<div style="color:var(--text-dim);">`);
       header.push(`• Saldo inicial base: <strong class="mono">${money(saldo0)}</strong>${plan.useCustomBalance ? ' <span style="color:#7a9eff;">(personalizado)</span>' : ' <span style="color:var(--gold);">(do app)</span>'}</div>`);
       header.push(`• Total de receitas: <strong class="mono" style="color:var(--green);">${money(totalReceita)}</strong> · Total de gastos: <strong class="mono" style="color:var(--red);">${money(totalGastos)}</strong> · Total investido: <strong class="mono" style="color:#b087ff;">${money(totalInvest)}</strong></div>`);
@@ -943,7 +1075,7 @@ function renderViewPanel(){
       calc.forEach((r, i) => {
         const delta = r.saldoFinal - r.saldoInicial;
         const totalSaidasMes = (+r.gastos||0) + (+r.investimentos||0);
-        const isSel = r.id === viewingId;
+        const isSel = i === viewingMonthIdx;
         lines.push(`
           <div style="padding:10px 12px;border-radius:8px;margin-bottom:8px;background:${isSel ? 'rgba(212,168,87,.07)' : 'transparent'};border:${isSel ? '1px solid rgba(212,168,87,.35)' : '1px solid transparent'};">
             <div style="margin-bottom:3px;">

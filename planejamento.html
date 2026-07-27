@@ -50,7 +50,7 @@
           <button id="btn-plan-new" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">➕ Novo plano</button>
           <button id="btn-plan-duplicate" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">⎘ Duplicar</button>
           <button id="btn-plan-delete" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;color:var(--red);">🗑 Excluir plano</button>
-          <button id="btn-clear-rows" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;color:var(--red);">🧹 Limpar meses</button>
+          <button id="btn-clear-rows" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;color:var(--red);">🧹 Limpar simulações</button>
           <button id="btn-use-saldo" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">⟳ Usar saldo atual</button>
         </span>
       </h2>
@@ -130,11 +130,11 @@
       <table class="wallet-table" id="plan-table">
         <thead>
           <tr>
-            <th style="width:22%;text-align:left;">Mês</th>
+            <th style="width:22%;text-align:left;">Período</th>
             <th style="width:13%;">Saldo Inicial</th>
-            <th style="width:13%;">Receita</th>
-            <th style="width:13%;">Gastos</th>
-            <th style="width:13%;">Investimentos</th>
+            <th style="width:13%;">Receita/mês</th>
+            <th style="width:13%;">Gastos/mês</th>
+            <th style="width:13%;">Invest./mês</th>
             <th style="width:13%;">Saldo Final</th>
             <th style="width:13%;text-align:left;">Ações</th>
           </tr>
@@ -142,7 +142,7 @@
         <tbody id="plan-body"></tbody>
       </table>
       <div id="empty-plan" class="empty-wallet" style="display:block;">
-        Nenhum mês planejado ainda. Use a calculadora acima e clique em "💾 Salvar planejamento" ou em "⟳ Usar saldo atual".
+        Nenhuma simulação salva ainda. Use a calculadora acima e clique em "💾 Salvar planejamento" ou em "⟳ Usar saldo atual".
       </div>
 
       <div id="view-panel" class="view-panel" style="display:none;margin-top:20px;padding:22px;background:var(--surface-2);border:1px solid var(--gold);border-radius:var(--radius);">
