@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livro Caixa — Controle Financeiro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="app-screen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1><span class="dot"></span> Livro Caixa</h1>
+    </div>
+    <nav class="tab-nav">
+      <a href="app.html" class="tab-link active">Dashboard</a>
+      <a href="carteira.html" class="tab-link">Carteira</a>
+      <a href="planejamento.html" class="tab-link">Planejamento</a>
+    </nav>
+    <button id="logout-btn" class="btn btn-ghost">Sair</button>
+  </header>
+
+  <main>
+    <div class="stats">
+      <div class="stat-card entradas">
+        <div class="label">Entradas no mês</div>
+        <div class="value mono" id="stat-entradas">R$ 0,00</div>
+      </div>
+      <div class="stat-card saidas">
+        <div class="label">Saídas no mês</div>
+        <div class="value mono" id="stat-saidas">R$ 0,00</div>
+      </div>
+      <div class="stat-card saldo">
+        <div class="label">Saldo do mês</div>
+        <div class="value mono" id="stat-saldo">R$ 0,00</div>
+      </div>
+      <div class="stat-card total">
+        <div class="label">Saldo total</div>
+        <div class="value mono" id="stat-total">R$ 0,00</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- LEFT: form + list -->
+      <div>
+        <div class="panel" style="margin-bottom:20px;">
+          <h2>Novo lançamento</h2>
+          <form id="tx-form">
+            <div class="segmented">
+              <button type="button" data-type="entrada" class="active entrada">Entrada</button>
+              <button type="button" data-type="saida">Saída</button>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="tx-value">Valor (R$)</label>
+                <input type="number" id="tx-value" step="0.01" min="0" placeholder="0,00" required autocomplete="off" inputmode="decimal" spellcheck="false" list="no-autofill">
+              </div>
+              <div class="field">
+                <label for="tx-date">Data</label>
+                <input type="date" id="tx-date" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="tx-desc">Descrição</label>
+              <input type="text" id="tx-desc" placeholder="Ex: Mercado, Salário, Aluguel..." required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-entrada">Adicionar</button>
+          </form>
+        </div>
+
+        <div class="panel">
+          <h2 id="tx-list-title">Lançamentos recentes</h2>
+          <ul id="tx-list"></ul>
+        </div>
+      </div>
+
+      <!-- RIGHT: calendar + dash -->
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div class="panel">
+          <h2>
+            <span>Calendário</span>
+            <span class="cal-nav">
+              <button id="cal-prev">‹</button>
+              <span class="cal-month-label" id="cal-month-label"></span>
+              <button id="cal-next">›</button>
+            </span>
+          </h2>
+          <div class="cal-grid" id="cal-dow-row"></div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-hint" id="cal-hint">Clique em um dia para filtrar e preencher a data.</div>
+        </div>
+
+        <div class="panel">
+          <h2>Resumo do ano</h2>
+          <div id="year-chart" class="year-chart"></div>
+          <div class="year-stats">
+            <div><span class="dot-sm dot-entrada"></span> Entradas: <span id="year-in" class="mono">R$ 0,00</span></div>
+            <div><span class="dot-sm dot-saida"></span> Saídas: <span id="year-out" class="mono">R$ 0,00</span></div>
+            <div><span class="dot-sm dot-saldo"></span> Saldo: <span id="year-net" class="mono">R$ 0,00</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

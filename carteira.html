@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carteira — Livro Caixa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="app-screen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1><span class="dot"></span> Livro Caixa</h1>
+    </div>
+    <nav class="tab-nav">
+      <a href="app.html" class="tab-link">Dashboard</a>
+      <a href="carteira.html" class="tab-link active">Carteira</a>
+      <a href="planejamento.html" class="tab-link">Planejamento</a>
+    </nav>
+    <button id="logout-btn" class="btn btn-ghost">Sair</button>
+  </header>
+
+  <main>
+    <div class="panel">
+      <h2>
+        <span>Carteira — Lançamentos</span>
+        <span style="display:flex;gap:8px;">
+          <button id="btn-new" class="btn btn-primary btn-entrada" style="padding:8px 14px;font-size:12.5px;">+ Novo</button>
+        </span>
+      </h2>
+
+      <div class="wallet-summary">
+        <div class="item item-in">Entradas<strong id="ws-in">R$ 0,00</strong></div>
+        <div class="item item-out">Saídas<strong id="ws-out">R$ 0,00</strong></div>
+        <div class="item item-net">Saldo<strong id="ws-net">R$ 0,00</strong></div>
+        <div class="item item-count">Lançamentos<strong id="ws-count">0</strong></div>
+      </div>
+
+      <div class="filters">
+        <div class="field">
+          <label for="f-search">Buscar descrição</label>
+          <input type="text" id="f-search" placeholder="Ex: mercado, salário..." autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="f-type">Tipo</label>
+          <select id="f-type" autocomplete="off">
+            <option value="all">Todos</option>
+            <option value="entrada">Apenas entradas</option>
+            <option value="saida">Apenas saídas</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-month">Mês/Ano</label>
+          <select id="f-month" autocomplete="off"></select>
+        </div>
+        <div class="field">
+          <label for="f-sort">Ordenar</label>
+          <select id="f-sort" autocomplete="off">
+            <option value="date-desc">Mais recentes</option>
+            <option value="date-asc">Mais antigos</option>
+            <option value="value-desc">Maior valor</option>
+            <option value="value-asc">Menor valor</option>
+          </select>
+        </div>
+      </div>
+
+      <table class="wallet-table" id="wallet-table">
+        <thead>
+          <tr>
+            <th style="width:13%;">Data</th>
+            <th style="width:9%;">Tipo</th>
+            <th>Descrição</th>
+            <th style="width:15%;">Valor</th>
+            <th style="width:120px;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="wallet-body"></tbody>
+      </table>
+      <div id="empty-wallet" class="empty-wallet" style="display:none;">
+        Nenhum lançamento encontrado. Clique em "+ Novo" para começar.
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="js/carteira.js"></script>
+</body>
+</html>

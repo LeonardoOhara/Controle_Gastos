@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planejamento Financeiro — Livro Caixa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="app-screen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1><span class="dot"></span> Livro Caixa</h1>
+    </div>
+    <nav class="tab-nav">
+      <a href="app.html" class="tab-link">Dashboard</a>
+      <a href="carteira.html" class="tab-link">Carteira</a>
+      <a href="planejamento.html" class="tab-link active">Planejamento</a>
+    </nav>
+    <button id="logout-btn" class="btn btn-ghost">Sair</button>
+  </header>
+
+  <main>
+    <div class="stats">
+      <div class="stat-card saldo">
+        <div class="label">Patrimônio atual</div>
+        <div class="value mono" id="stat-patrimonio">R$ 0,00</div>
+      </div>
+      <div class="stat-card total">
+        <div class="label">Total investido</div>
+        <div class="value mono" id="stat-investido">R$ 0,00</div>
+      </div>
+      <div class="stat-card entradas">
+        <div class="label">Saldo projetado</div>
+        <div class="value mono" id="stat-projetado">R$ 0,00</div>
+      </div>
+      <div class="stat-card saidas">
+        <div class="label">Meses que dura</div>
+        <div class="value mono" id="stat-meses">0</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>
+        <span>Planejamento Financeiro</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button id="btn-plan-new" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">➕ Novo plano</button>
+          <button id="btn-plan-duplicate" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">⎘ Duplicar</button>
+          <button id="btn-plan-delete" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;color:var(--red);">🗑 Excluir plano</button>
+          <button id="btn-clear-rows" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;color:var(--red);">🧹 Limpar meses</button>
+          <button id="btn-use-saldo" class="btn btn-ghost" style="padding:8px 12px;font-size:12px;">⟳ Usar saldo atual</button>
+        </span>
+      </h2>
+
+      <div style="background:var(--surface-2);padding:12px 14px;border-radius:var(--radius);border:1px solid var(--border);margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">
+          <span style="font-size:12px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;white-space:nowrap;">Plano atual:</span>
+          <select id="plan-selector" style="flex:1;min-width:180px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-family:inherit;font-size:13.5px;outline:none;appearance:none;">
+          </select>
+          <span id="plan-count" style="font-size:11px;color:var(--text-dim);white-space:nowrap;"></span>
+        </div>
+      </div>
+
+      <div style="background:var(--surface-2);padding:16px;border-radius:var(--radius);border:1px solid var(--border);margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="field" style="margin-bottom:0;">
+          <label>Saldo inicial do planejamento</label>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="saldo-base" id="radio-saldo-atual" value="atual" checked>
+              Usar saldo atual <span class="mono" id="lbl-saldo-atual" style="color:var(--gold);margin-left:4px;">R$ 0,00</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="saldo-base" id="radio-saldo-custom" value="custom">
+              Saldo personalizado
+            </label>
+            <input type="number" id="saldo-custom" step="0.01" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false" disabled style="flex:1;min-width:150px;max-width:220px;">
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="plan-name">Nome do planejamento</label>
+          <input type="text" id="plan-name" placeholder="Ex: Plano de manutenção 2026, Reserva de emergência..." autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="wallet-summary">
+        <div class="item item-in">Receita total<strong id="soma-receita">R$ 0,00</strong></div>
+        <div class="item item-out">Gastos totais<strong id="soma-gastos">R$ 0,00</strong></div>
+        <div class="item item-net">Saldo acumulado<strong id="soma-acumulado">R$ 0,00</strong></div>
+        <div class="item item-count">Meses planejados<strong id="soma-meses">0</strong></div>
+      </div>
+
+      <div class="panel" style="background:var(--surface-2);margin-bottom:18px;padding:18px;border:1px dashed var(--border);">
+        <h3 style="margin:0 0 14px;font-size:14px;font-family:'Fraunces',serif;display:flex;align-items:center;gap:8px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--gold);display:inline-block;"></span>
+          Calculadora reversa — Quanto posso gastar por mês?
+        </h3>
+        <div class="filters" style="margin-bottom:0;align-items:flex-end;">
+          <div class="field">
+            <label for="rev-meses">Quer durar quantos meses?</label>
+            <input type="number" id="rev-meses" min="1" step="1" placeholder="Ex: 12" autocomplete="off" inputmode="numeric" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="rev-receita">Receita mensal média</label>
+            <input type="number" id="rev-receita" min="0" step="0.01" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="rev-gastos">Gastos mensais médios</label>
+            <input type="number" id="rev-gastos" min="0" step="0.01" placeholder="0,00" autocomplete="off" inputmode="decimal" spellcheck="false">
+          </div>
+          <div class="field" style="min-width:240px;">
+            <label id="rev-result-label">Gasto médio mensal permitido</label>
+            <div id="rev-result" class="mono" style="background:var(--bg);border:1px solid var(--border);padding:11px 12px;border-radius:8px;font-size:18px;font-weight:700;color:var(--green);">
+              R$ 0,00
+            </div>
+          </div>
+          <div class="field" style="flex:0 0 auto;margin-bottom:0;">
+            <button id="btn-rev-save" class="btn btn-primary btn-saida" style="width:auto;padding:11px 20px;">
+              💾 Salvar planejamento
+            </button>
+          </div>
+        </div>
+        <div id="rev-note" style="font-size:12px;color:var(--text-dim);margin-top:10px;">
+          Informe a quantidade de meses para saber o limite de gasto mensal.
+        </div>
+      </div>
+
+      <table class="wallet-table" id="plan-table">
+        <thead>
+          <tr>
+            <th style="width:22%;text-align:left;">Mês</th>
+            <th style="width:13%;">Saldo Inicial</th>
+            <th style="width:13%;">Receita</th>
+            <th style="width:13%;">Gastos</th>
+            <th style="width:13%;">Investimentos</th>
+            <th style="width:13%;">Saldo Final</th>
+            <th style="width:13%;text-align:left;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="plan-body"></tbody>
+      </table>
+      <div id="empty-plan" class="empty-wallet" style="display:block;">
+        Nenhum mês planejado ainda. Use a calculadora acima e clique em "💾 Salvar planejamento" ou em "⟳ Usar saldo atual".
+      </div>
+
+      <div id="view-panel" class="view-panel" style="display:none;margin-top:20px;padding:22px;background:var(--surface-2);border:1px solid var(--gold);border-radius:var(--radius);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+            <button id="view-prev" class="icon-btn" title="Mês anterior (←)" style="font-size:15px;padding:6px 9px;">◀</button>
+            <div style="display:flex;flex-direction:column;min-width:0;">
+              <h3 id="view-title" style="margin:0;font-family:'Fraunces',serif;font-size:20px;display:flex;align-items:center;gap:8px;">
+                <span style="font-size:18px;">👁</span> <span id="view-title-inner">Detalhes do mês</span>
+              </h3>
+              <span id="view-nav-subtitle" style="font-size:11.5px;color:var(--text-dim);margin-top:2px;letter-spacing:.2px;">Navegue entre os meses do planejamento</span>
+            </div>
+            <button id="view-next" class="icon-btn" title="Próximo mês (→)" style="font-size:15px;padding:6px 9px;">▶</button>
+            <span id="view-nav-count" style="font-size:12px;color:var(--gold);margin-left:6px;white-space:nowrap;">1 / 1</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button id="view-first" class="btn btn-ghost" style="padding:6px 10px;font-size:11.5px;" title="Ir para o primeiro mês">⏮ 1º</button>
+            <button id="view-last" class="btn btn-ghost" style="padding:6px 10px;font-size:11.5px;" title="Ir para o último mês">⏭ último</button>
+            <button id="view-close" class="icon-btn" title="Fechar">✕</button>
+          </div>
+        </div>
+        <div class="view-grid">
+          <div class="stat-card" style="padding:16px 18px;">
+            <div class="label">Saldo Inicial</div>
+            <div class="value mono" id="view-inicial" style="font-size:20px;">R$ 0,00</div>
+          </div>
+          <div class="stat-card entradas" style="padding:16px 18px;">
+            <div class="label">Receita</div>
+            <div class="value mono" id="view-receita" style="font-size:20px;">R$ 0,00</div>
+          </div>
+          <div class="stat-card saidas" style="padding:16px 18px;">
+            <div class="label">Gastos</div>
+            <div class="value mono" id="view-gastos" style="font-size:20px;">R$ 0,00</div>
+          </div>
+          <div class="stat-card total" style="padding:16px 18px;">
+            <div class="label">Investimentos</div>
+            <div class="value mono" id="view-invest" style="font-size:20px;">R$ 0,00</div>
+          </div>
+          <div class="stat-card saldo" style="padding:16px 18px;grid-column:span 2;">
+            <div class="label">Saldo Final projetado</div>
+            <div class="value mono" id="view-final" style="font-size:24px;">R$ 0,00</div>
+          </div>
+          <div class="stat-card" style="padding:16px 18px;grid-column:span 2;background:var(--bg);border:1px dashed var(--border);">
+            <div class="label">Indicadores</div>
+            <div id="view-indicators" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.6;"></div>
+          </div>
+        </div>
+
+        <div id="view-timeline-wrap" style="margin-top:22px;">
+          <h4 style="margin:0 0 6px;font-family:'Fraunces',serif;font-size:15px;display:flex;align-items:center;gap:8px;">
+            <span style="width:5px;height:5px;border-radius:50%;background:var(--gold);display:inline-block;"></span>
+            <span id="timeline-title">Todos os meses do planejamento</span>
+          </h4>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:10px;">👆 Clique em um mês acima — os detalhes aparecem nos cards e no relatório escrito, logo abaixo.</div>
+          <div id="view-timeline" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;"></div>
+        </div>
+
+        <div id="view-report-wrap" style="margin-top:22px;">
+          <h4 style="margin:0 0 12px;font-family:'Fraunces',serif;font-size:15px;display:flex;align-items:center;gap:8px;">
+            <span style="width:5px;height:5px;border-radius:50%;background:#6ecc94;display:inline-block;"></span>
+            Relatório escrito · mês a mês
+          </h4>
+          <div id="view-report" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;max-height:380px;overflow-y:auto;line-height:1.75;font-size:13.5px;"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="js/planejamento.js"></script>
+</body>
+</html>

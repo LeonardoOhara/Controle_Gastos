@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livro Caixa — Controle Financeiro</title>
+</head>
+<body>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB4GQkmdoxPUBvhshLUzbS_WjYJ9Zttbpg",
+    authDomain: "controlegasto-67d6e.firebaseapp.com",
+    projectId: "controlegasto-67d6e",
+    storageBucket: "controlegasto-67d6e.firebasestorage.app",
+    messagingSenderId: "746199352578",
+    appId: "1:746199352578:web:51dde9092ec768d633ae1b",
+    measurementId: "G-JB7Z8PWLF1"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      window.location.replace('app.html');
+    } else {
+      window.location.replace('login.html');
+    }
+  });
+</script>
+</body>
+</html>
