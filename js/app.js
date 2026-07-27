@@ -1,17 +1,20 @@
 import {
   auth, signOut, onAuthStateChanged,
-  db, collection, addDoc, deleteDoc, doc, onSnapshot, serverTimestamp
+  db, collection, addDoc, deleteDoc, doc, onSnapshot, serverTimestamp, query, where
 } from "./firebase-config.js";
 
 document.getElementById('logout-btn').addEventListener('click', () => {
   signOut(auth).catch(err => console.error('Erro ao sair:', err));
 });
 
+let currentUserUid = null;
+
 onAuthStateChanged(auth, (user) => {
   if (!user) {
     window.location.href = 'login.html';
     return;
   }
+  currentUserUid = user.uid;
   startListening();
 });
 
@@ -55,7 +58,8 @@ document.getElementById('tx-date').value = toISO(new Date());
 
 function startListening(){
   const txCol = collection(db, 'transactions');
-  onSnapshot(txCol, (snapshot) => {
+  const q = query(txCol, where('uid', '==', currentUserUid));
+  onSnapshot(q, (snapshot) => {
     allTx = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     renderAll();
   }, (err) => {
@@ -72,6 +76,7 @@ document.getElementById('tx-form').addEventListener('submit', async (e) => {
 
   try {
     await addDoc(collection(db, 'transactions'), {
+      uid: currentUserUid,
       type: currentType,
       value,
       description: desc,

@@ -396,7 +396,8 @@ function renderPlanSelector(){
 
 function startFirestoreListener(){
   const txCol = collection(db, 'transactions');
-  onSnapshot(txCol, (snapshot) => {
+  const q = query(txCol, where('uid', '==', currentUserUid));
+  onSnapshot(q, (snapshot) => {
     const allTx = snapshot.docs.map(d => d.data());
     const totalIn  = allTx.filter(t=>t.type==='entrada').reduce((s,t)=>s+(+t.value||0),0);
     const totalOut = allTx.filter(t=>t.type==='saida').reduce((s,t)=>s+(+t.value||0),0);
