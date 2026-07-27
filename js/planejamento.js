@@ -1,6 +1,6 @@
 import {
   auth, signOut, onAuthStateChanged,
-  db, collection, onSnapshot
+  db, collection, onSnapshot, doc, setDoc, getDoc, serverTimestamp
 } from "./firebase-config.js";
 
 const logoutBtn = document.getElementById('logout-btn');
@@ -80,25 +80,29 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
   currentUserUid = user.uid;
+  // 1) Carrega do localStorage como cache rápido (usado enquanto Firestore carrega)
   loadStore();
+  // 2) Garante que exista pelo menos 1 plano (usado antes do Firestore responder)
   if (store.plans.length === 0){
     const first = emptyPlan();
     first.id = genId();
     first.name = 'Plano inicial';
     store.plans.push(first);
     store.currentId = first.id;
-    saveStore();
+    try { localStorage.setItem(storageKey(), JSON.stringify(store)); } catch (_) {}
   }
   if (!store.currentId || !store.plans.find(p=>p.id===store.currentId)){
     store.currentId = store.plans[0].id;
-    saveStore();
+    try { localStorage.setItem(storageKey(), JSON.stringify(store)); } catch (_) {}
   }
   plan = store.plans.find(p=>p.id===store.currentId);
-  startFirestoreListener();
   bindStaticEvents();
   renderPlanSelector();
   syncUIWithPlan();
   renderAll();
+  // 3) Liga listeners do Firestore em background (transactions + planning)
+  startFirestoreListener();
+  startPlanningFirestoreListener();
 });
 
 function genId(){ return String(Math.random().toString(36).slice(2,10)) + Date.now().toString(36); }
@@ -118,9 +122,153 @@ function storageKey(){
   return `${STORAGE_KEY}_${currentUserUid || 'anon'}`;
 }
 
+// =========================================================
+//  PERSISTÊNCIA: localStorage (cache) + Firestore (fonte)
+// =========================================================
+let _firestoreUnsubPlanning = null;
+let _firestoreLoadedOnce = false;
+let _writingToFirestore = false;
+
+function planningDocRef(){
+  if (!currentUserUid) return null;
+  return doc(db, 'planning', currentUserUid);
+}
+
 function saveStore(){
+  // Salva sempre no localStorage como cache de fallback
   try { localStorage.setItem(storageKey(), JSON.stringify(store)); }
-  catch (e) { console.error('Erro ao salvar store planejamento:', e); }
+  catch (e) { console.error('Erro ao salvar store planejamento (local):', e); }
+  // Também envia ao Firestore se usuário logado e já terminou o load inicial
+  saveStoreToFirestore();
+}
+
+async function saveStoreToFirestore(){
+  if (!currentUserUid || !_firestoreLoadedOnce || _writingToFirestore) return;
+  const ref = planningDocRef();
+  if (!ref) return;
+  _writingToFirestore = true;
+  try {
+    await setDoc(ref, {
+      currentId: store.currentId || null,
+      plans: Array.isArray(store.plans) ? store.plans : [],
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    console.error('Erro ao salvar planejamento no Firestore:', e);
+    if (e && String(e.message || e).toLowerCase().includes('permission')){
+      alert('Não foi possível salvar o planejamento no banco de dados.\nVerifique as regras de permissão do Firestore no console Firebase.');
+    }
+  } finally {
+    _writingToFirestore = false;
+  }
+}
+
+function applyFirestoreToStore(dataFromFirestore, { preferLocalIfConflict = true } = {}){
+  if (!dataFromFirestore || (dataFromFirestore.plans === undefined && dataFromFirestore.currentId === undefined)){
+    // Nada no Firestore ainda → mantém localStorage (e vamos subir depois)
+    return false;
+  }
+  const hasFirestoreData = Array.isArray(dataFromFirestore.plans) && dataFromFirestore.plans.length > 0;
+  const hasLocalData = Array.isArray(store.plans) && store.plans.length > 0;
+
+  let incoming;
+  if (preferLocalIfConflict && hasLocalData && !hasFirestoreData){
+    // Local tem dados, Firestore está vazio → não aplica, e saveStore() subirá depois
+    return false;
+  }
+  if (preferLocalIfConflict && hasLocalData && hasFirestoreData){
+    // Ambos têm dados → dá preferência ao Firestore como fonte sincronizada
+    // (mas se local tiver mais simulações, você poderia fazer merge; aqui usamos Firestore como fonte)
+  }
+  try {
+    incoming = normalizePlanFirestoreDoc(dataFromFirestore);
+  } catch (e) {
+    console.error('Dados do Firestore inválidos para planejamento:', e);
+    return false;
+  }
+  store = incoming;
+  // Replica no cache local para o caso de o Firestore falhar depois
+  try { localStorage.setItem(storageKey(), JSON.stringify(store)); } catch (_) {}
+  return true;
+}
+
+function normalizePlanFirestoreDoc(obj){
+  const currentId = typeof obj.currentId === 'string' ? obj.currentId : null;
+  const plans = Array.isArray(obj.plans) ? obj.plans.map(p => normalizePlan(p)).filter(Boolean) : [];
+  return {
+    currentId: currentId && plans.find(p => p.id === currentId) ? currentId : (plans.length > 0 ? plans[0].id : null),
+    plans
+  };
+}
+
+async function migrateLocalStorageToFirestoreIfNeeded(){
+  if (!currentUserUid) return;
+  try {
+    const ref = planningDocRef();
+    if (!ref) return;
+    const snap = await getDoc(ref);
+    if (!snap.exists() || !snap.data() || !Array.isArray(snap.data().plans) || snap.data().plans.length === 0){
+      // Firestore vazio → sobe o localStorage se tiver dados
+      if (Array.isArray(store.plans) && store.plans.length > 0){
+        await saveStoreToFirestore();
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao migrar localStorage → Firestore (planning):', e);
+  }
+}
+
+function startPlanningFirestoreListener(){
+  if (!currentUserUid) return;
+  if (typeof _firestoreUnsubPlanning === 'function') _firestoreUnsubPlanning();
+  const ref = planningDocRef();
+  if (!ref) return;
+
+  _firestoreUnsubPlanning = onSnapshot(ref, (snap) => {
+    if (!snap.exists){
+      // Ainda não há doc no Firestore → tenta migrar do localStorage uma única vez
+      if (!_firestoreLoadedOnce){
+        _firestoreLoadedOnce = true;
+        migrateLocalStorageToFirestoreIfNeeded();
+        renderAll();
+      }
+      return;
+    }
+    const data = snap.data();
+    const changed = applyFirestoreToStore(data, { preferLocalIfConflict: !_firestoreLoadedOnce });
+    if (!_firestoreLoadedOnce){
+      _firestoreLoadedOnce = true;
+      // Se o Firestore estava vazio e nós temos dados locais, subir agora
+      if (!changed && Array.isArray(store.plans) && store.plans.length > 0){
+        migrateLocalStorageToFirestoreIfNeeded();
+      }
+    }
+    // Ajusta referência global do plano ativo
+    if (store.plans.length === 0){
+      const first = emptyPlan();
+      first.id = genId();
+      first.name = 'Plano inicial';
+      store.plans.push(first);
+      store.currentId = first.id;
+      saveStore();
+    } else if (!store.currentId || !store.plans.find(p=>p.id===store.currentId)){
+      store.currentId = store.plans[0].id;
+      saveStore();
+    }
+    plan = store.plans.find(p=>p.id===store.currentId) || emptyPlan();
+    renderPlanSelector();
+    syncUIWithPlan();
+    renderAll();
+  }, (err) => {
+    console.error('Erro ao ler planejamento do Firestore:', err);
+    if (err && String(err.message || err).toLowerCase().includes('permission')){
+      // Permissão negada → continua usando localStorage como fonte
+      if (!_firestoreLoadedOnce){
+        _firestoreLoadedOnce = true;
+        renderAll();
+      }
+    }
+  });
 }
 
 function loadStore(){
